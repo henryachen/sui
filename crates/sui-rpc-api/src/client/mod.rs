@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod response_ext;
+
+use base64::Engine;
 pub use response_ext::ResponseExt;
 
 pub mod sdk;
@@ -9,7 +11,7 @@ use sdk::BoxError;
 
 pub use reqwest;
 use tap::Pipe;
-use tonic::metadata::MetadataMap;
+use tonic::metadata::{Ascii, MetadataMap, MetadataValue};
 
 use crate::proto::node::v2::node_service_client::NodeServiceClient;
 use crate::proto::node::v2::{
@@ -25,10 +27,13 @@ use sui_types::messages_checkpoint::{CertifiedCheckpointSummary, CheckpointSeque
 use sui_types::object::Object;
 use sui_types::transaction::Transaction;
 
-pub type Result<T, E = tonic::Status> = std::result::Result<T, E>;
+pub type Result<T, E = Status> = std::result::Result<T, E>;
 
+use tonic::codegen::InterceptedService;
+use tonic::service::Interceptor;
 use tonic::transport::channel::ClientTlsConfig;
-use tonic::Status;
+use tonic::transport::Channel;
+use tonic::{Request, Status};
 
 #[derive(Clone)]
 pub struct Client {
@@ -207,7 +212,7 @@ impl Client {
         let request = crate::proto::node::v2::ExecuteTransactionRequest {
             transaction: None,
             transaction_bcs: Some(
-                crate::proto::types::Bcs::serialize(&transaction.inner().intent_message.value)
+                Bcs::serialize(&transaction.inner().intent_message.value)
                     .map_err(|e| Status::from_error(e.into()))?,
             ),
             signatures: None,
@@ -218,7 +223,7 @@ impl Client {
                 effects_bcs: Some(true),
                 events: Some(false),
                 events_bcs: Some(true),
-                ..(parameters.to_owned().into())
+                ..parameters.to_owned().into()
             }),
         };
 
