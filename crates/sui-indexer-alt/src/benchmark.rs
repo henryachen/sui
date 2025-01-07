@@ -51,6 +51,8 @@ pub async fn run_benchmark(
     let client_args = ClientArgs {
         remote_store_url: None,
         local_ingestion_path: Some(ingestion_path.clone()),
+        rpc_api_url: None,
+        basic_auth: None,
     };
 
     let cur_time = Instant::now();
