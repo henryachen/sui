@@ -6,7 +6,7 @@ use std::mem;
 use sui_default_config::DefaultConfig;
 use tracing::warn;
 
-use crate::api::{objects::ObjectsConfig, transactions::TransactionsConfig};
+use crate::api::{coin::CoinConfig, objects::ObjectsConfig, transactions::TransactionsConfig};
 
 #[DefaultConfig]
 #[derive(Clone, Default, Debug)]
@@ -16,6 +16,9 @@ pub struct RpcConfig {
 
     /// Configuration for transaction-related RPC methods.
     pub transactions: TransactionsLayer,
+
+    /// Configuration for coin-related RPC methods.
+    pub coin: CoinLayer,
 
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -40,6 +43,16 @@ pub struct TransactionsLayer {
     pub extra: toml::Table,
 }
 
+#[DefaultConfig]
+#[derive(Clone, Default, Debug)]
+pub struct CoinLayer {
+    pub default_page_size: Option<usize>,
+    pub max_page_size: Option<usize>,
+
+    #[serde(flatten)]
+    pub extra: toml::Table,
+}
+
 impl RpcConfig {
     /// Generate an example configuration, suitable for demonstrating the fields available to
     /// configure.
@@ -47,6 +60,7 @@ impl RpcConfig {
         Self {
             objects: ObjectsConfig::default().into(),
             transactions: TransactionsConfig::default().into(),
+            coin: CoinConfig::default().into(),
             extra: Default::default(),
         }
     }
@@ -89,6 +103,26 @@ impl From<ObjectsConfig> for ObjectsLayer {
 
 impl From<TransactionsConfig> for TransactionsLayer {
     fn from(config: TransactionsConfig) -> Self {
+        Self {
+            default_page_size: Some(config.default_page_size),
+            max_page_size: Some(config.max_page_size),
+            extra: Default::default(),
+        }
+    }
+}
+
+impl CoinLayer {
+    pub fn finish(self, base: CoinConfig) -> CoinConfig {
+        check_extra("coin", self.extra);
+        CoinConfig {
+            default_page_size: self.default_page_size.unwrap_or(base.default_page_size),
+            max_page_size: self.max_page_size.unwrap_or(base.max_page_size),
+        }
+    }
+}
+
+impl From<CoinConfig> for CoinLayer {
+    fn from(config: CoinConfig) -> Self {
         Self {
             default_page_size: Some(config.default_page_size),
             max_page_size: Some(config.max_page_size),

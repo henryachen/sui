@@ -675,7 +675,6 @@ impl<'a> MoveTestAdapter<'a> for SuiTestAdapter {
 
                 let interpolated =
                     self.interpolate_query(&contents, &cursors, highest_checkpoint)?;
-
                 #[derive(Deserialize)]
                 struct Query {
                     method: String,
@@ -684,7 +683,6 @@ impl<'a> MoveTestAdapter<'a> for SuiTestAdapter {
 
                 let query: Query = serde_json::from_str(&interpolated)
                     .context("Failed to parse JSON-RPC query")?;
-
                 let resp = offchain_reader
                     .execute_jsonrpc(query.method, query.params)
                     .await?;
@@ -1352,7 +1350,28 @@ impl<'a> SuiTestAdapter {
 
                 variables.insert(format!("cursor_{idx}"), base64d);
             } else {
-                variables.insert(format!("cursor_{idx}"), Base64::encode(s));
+                // Handle cursor strings containing @{obj_x_y} pattern
+                if s.contains("@{obj_") {
+                    let re = regex::Regex::new(r"@\{obj_(\d+_\d+)\}").unwrap();
+                    let interpolated = re
+                        .replace_all(s, |caps: &regex::Captures| {
+                            let obj_lookup = format!("obj_{}", &caps[1]);
+                            let obj_id = objects_mapping.get(&obj_lookup).unwrap_or_else(|| {
+                                panic!(
+                                "Unknown object lookup: {}\nAllowed variable mappings are {:#?}",
+                                obj_lookup, variables
+                            )
+                            });
+                            format!(
+                                "\"{}\"",
+                                ObjectID::from_bytes(obj_id).unwrap().to_hex_uncompressed()
+                            )
+                        })
+                        .to_string();
+                    variables.insert(format!("cursor_{idx}"), Base64::encode(interpolated));
+                } else {
+                    variables.insert(format!("cursor_{idx}"), Base64::encode(s));
+                }
             }
         }
 
