@@ -1714,7 +1714,16 @@ impl ProtocolConfig {
     }
 
     pub fn gc_depth(&self) -> u32 {
+<<<<<<< HEAD
         self.consensus_gc_depth.unwrap_or(0)
+=======
+        if cfg!(msim) {
+            // exercise a very low gc_depth
+            3
+        } else {
+            self.consensus_gc_depth.unwrap_or(0)
+        }
+>>>>>>> 9c14bd9cd9 ([refactor] allow blocks synced via commit syncer to be accepted when above the last committed leader's gc.)
     }
 
     pub fn mysticeti_fastpath(&self) -> bool {
