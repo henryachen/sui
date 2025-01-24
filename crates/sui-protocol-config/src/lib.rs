@@ -3149,6 +3149,9 @@ impl ProtocolConfig {
                     cfg.max_gas_price = Some(50_000_000_000);
 
                     cfg.feature_flags.variant_nodes = true;
+
+                    cfg.consensus_gc_depth = Some(50);
+                    cfg.feature_flags.consensus_linearize_subdag_v2 = true;
                 }
                 // Use this template when making changes:
                 //
