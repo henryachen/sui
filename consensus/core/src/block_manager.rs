@@ -156,6 +156,10 @@ impl BlockManager {
             // Fetches the block if it is not in dag state or suspended.
             missing_blocks.insert(*block_ref);
             if self.missing_blocks.insert(*block_ref) {
+                // We want to report this as a missing ancestor even if there is no block that is actually references it right now. That will allow us
+                // to seamlessly GC the block later if needed.
+                self.missing_ancestors.entry(*block_ref).or_default();
+
                 let block_ref_hostname =
                     &self.context.committee.authority(block_ref.author).hostname;
                 self.context
@@ -483,7 +487,7 @@ impl BlockManager {
             // If the first block in the missing ancestors is higher than the gc_round, then we can't unsuspend it yet. So we just put it back
             // and we terminate the iteration as any next entry will be of equal or higher round anyways.
             if block_ref.round > gc_round {
-                return;
+                break;
             }
 
             blocks_gc_ed += 1;
