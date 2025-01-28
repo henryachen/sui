@@ -2883,6 +2883,7 @@ impl AuthorityState {
     }
 
     #[allow(clippy::disallowed_methods)] // allow unbounded_channel()
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         name: AuthorityName,
         secret: StableSyncAuthoritySigner,
