@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Result;
+use arc_swap::ArcSwapAny;
 use async_trait::async_trait;
 use fastcrypto::traits::KeyPair;
 use mysten_metrics::spawn_monitored_task;
@@ -346,7 +347,7 @@ pub struct ValidatorService {
     state: Arc<AuthorityState>,
     consensus_adapter: Arc<ConsensusAdapter>,
     metrics: Arc<ValidatorServiceMetrics>,
-    traffic_controller: Option<Arc<TrafficController>>,
+    traffic_controller: Option<Arc<ArcSwapAny<Arc<TrafficController>>>>,
     client_id_source: Option<ClientIdSource>,
 }
 
@@ -357,7 +358,7 @@ impl ValidatorService {
         validator_metrics: Arc<ValidatorServiceMetrics>,
         client_id_source: Option<ClientIdSource>,
     ) -> Self {
-        let traffic_controller = state.traffic_controller.as_ref().cloned();
+        let traffic_controller = state.traffic_controller.clone();
         Self {
             state,
             consensus_adapter,
@@ -1293,7 +1294,7 @@ impl ValidatorService {
 
     async fn handle_traffic_req(&self, client: Option<IpAddr>) -> Result<(), tonic::Status> {
         if let Some(traffic_controller) = &self.traffic_controller {
-            if !traffic_controller.check(&client, &None).await {
+            if !traffic_controller.load().check(&client, &None).await {
                 // Entity in blocklist
                 Err(tonic::Status::from_error(SuiError::TooManyRequests.into()))
             } else {
@@ -1319,7 +1320,7 @@ impl ValidatorService {
         };
 
         if let Some(traffic_controller) = self.traffic_controller.clone() {
-            traffic_controller.tally(TrafficTally {
+            traffic_controller.load().tally(TrafficTally {
                 direct: client,
                 through_fullnode: None,
                 error_info: error.map(|e| {

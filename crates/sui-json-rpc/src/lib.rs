@@ -5,6 +5,7 @@ use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use arc_swap::ArcSwapAny;
 use axum::body::Body;
 use axum::http;
 use hyper::header::HeaderName;
@@ -61,7 +62,7 @@ pub struct JsonRpcServerBuilder {
     module: RpcModule<()>,
     rpc_doc: Project,
     registry: Registry,
-    traffic_controller: Option<Arc<TrafficController>>,
+    traffic_controller: Option<Arc<ArcSwapAny<Arc<TrafficController>>>>,
     policy_config: Option<PolicyConfig>,
 }
 
@@ -82,7 +83,7 @@ impl JsonRpcServerBuilder {
     pub fn new(
         version: &str,
         prometheus_registry: &Registry,
-        traffic_controller: Option<Arc<TrafficController>>,
+        traffic_controller: Option<Arc<ArcSwapAny<Arc<TrafficController>>>>,
         policy_config: Option<PolicyConfig>,
     ) -> Self {
         Self {
