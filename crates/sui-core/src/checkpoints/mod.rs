@@ -19,6 +19,7 @@ use crate::stake_aggregator::{InsertResult, MultiStakeAggregator};
 use crate::state_accumulator::StateAccumulator;
 use diffy::create_patch;
 use itertools::Itertools;
+use mysten_common::sync::notify_read::NotifyRead;
 use mysten_common::{debug_fatal, fatal};
 use mysten_metrics::{monitored_future, monitored_scope, MonitoredFutureExt};
 use nonempty::NonEmpty;
@@ -182,6 +183,8 @@ pub struct CheckpointStore {
     /// Watermarks used to determine the highest verified, fully synced, and
     /// fully executed checkpoints
     pub(crate) watermarks: DBMap<CheckpointWatermark, (CheckpointSequenceNumber, CheckpointDigest)>,
+
+    synced_checkpoint_notify_read: NotifyRead<CheckpointSequenceNumber, VerifiedCheckpoint>,
 }
 
 impl CheckpointStore {
@@ -563,14 +566,42 @@ impl CheckpointStore {
         &self,
         checkpoint: &VerifiedCheckpoint,
     ) -> Result<(), TypedStoreError> {
-        debug!(
-            checkpoint_seq = checkpoint.sequence_number(),
-            "Updating highest synced checkpoint",
-        );
+        let seq = *checkpoint.sequence_number();
+        debug!(checkpoint_seq = seq, "Updating highest synced checkpoint",);
         self.watermarks.insert(
             &CheckpointWatermark::HighestSynced,
-            &(*checkpoint.sequence_number(), *checkpoint.digest()),
-        )
+            &(seq, *checkpoint.digest()),
+        )?;
+        self.synced_checkpoint_notify_read.notify(&seq, checkpoint);
+        Ok(())
+    }
+
+    pub async fn notify_read_synced_checkpoint(
+        &self,
+        seq: CheckpointSequenceNumber,
+    ) -> VerifiedCheckpoint {
+        self.synced_checkpoint_notify_read
+            .read(&[seq], |seqs| {
+                let seq = seqs[0];
+                let Some(highest_synced) = self
+                    .get_highest_synced_checkpoint_seq_number()
+                    .expect("db error")
+                else {
+                    return vec![None];
+                };
+                if highest_synced >= seq {
+                    return vec![None];
+                }
+                let checkpoint = self
+                    .get_checkpoint_by_sequence_number(seq)
+                    .expect("db error")
+                    .expect("checkpoint not found");
+                vec![Some(checkpoint)]
+            })
+            .await
+            .into_iter()
+            .next()
+            .unwrap()
     }
 
     pub fn update_highest_executed_checkpoint(

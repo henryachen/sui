@@ -71,6 +71,8 @@ use crate::{
 mod data_ingestion_handler;
 pub mod metrics;
 
+mod v2;
+
 type CheckpointExecutionBuffer = FuturesOrdered<
     JoinHandle<(
         VerifiedCheckpoint,
