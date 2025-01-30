@@ -1181,7 +1181,11 @@ impl AuthorityPerEpochStore {
         &self,
         checkpoint: &CheckpointSequenceNumber,
     ) -> SuiResult<Option<Accumulator>> {
-        Ok(self.tables()?.state_hash_by_checkpoint.get(checkpoint)?)
+        Ok(self
+            .tables()?
+            .state_hash_by_checkpoint
+            .get(checkpoint)
+            .expect("db error"))
     }
 
     pub fn insert_state_hash_for_checkpoint(
@@ -1192,7 +1196,8 @@ impl AuthorityPerEpochStore {
         Ok(self
             .tables()?
             .state_hash_by_checkpoint
-            .insert(checkpoint, accumulator)?)
+            .insert(checkpoint, accumulator)
+            .expect("db error"))
     }
 
     pub fn get_running_root_accumulator(
