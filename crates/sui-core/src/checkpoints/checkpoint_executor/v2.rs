@@ -3,6 +3,8 @@
 
 use async_stream::stream;
 use futures::{Stream, StreamExt};
+use mysten_common::fatal;
+use sui_types::messages_checkpoint::CheckpointContents;
 /*
 use std::sync::Arc;
 
@@ -145,7 +147,28 @@ impl CheckpointExecutorV2 {
         )
         // concurrent step
         .map(|checkpoint| async move {
-            self.execute_checkpoint(checkpoint).await;
+            let sequence_number = checkpoint.sequence_number;
+            let checkpoint_contents = self
+                .checkpoint_store
+                .get_checkpoint_contents(&checkpoint.content_digest)
+                .expect("db error")
+                .expect("checkpoint contents not found");
+
+            let (tx_digests, executed_fx_digests, effects) =
+                self.load_checkpoint_data(checkpoint_contents);
+
+            self.execute_checkpoint(
+                epoch_store,
+                sequence_number,
+                tx_digests,
+                executed_fx_digests,
+                effects,
+            )
+            .await;
+            let checkpoint_acc =
+                self.accumulator
+                    .accumulate_checkpoint(effects, sequence_number, &epoch_store);
+            self.write_checkpoint_data(checkpoint).await;
         })
         .buffered(10)
         // sequential step
@@ -174,5 +197,90 @@ impl CheckpointExecutorV2 {
                 yield checkpoint;
             }
         }
+    }
+}
+
+impl CheckpointExecutorV2 {
+    fn load_checkpoint_data(
+        &self,
+        checkpoint_contents: CheckpointContents,
+    ) -> (
+        Vec<TransactionDigest>,
+        Vec<Option<TransactionEffectsDigest>>,
+        Vec<TransactionEffects>,
+    ) {
+        let digests = checkpoint_contents.into_inner();
+        let (tx_digests, fx_digests): (Vec<_>, Vec<_>) =
+            digests.iter().map(|d| (d.transaction, d.effects)).unzip();
+        let effects = self
+            .transaction_cache_reader
+            .multi_get_effects(&fx_digests)
+            .into_iter()
+            .enumerate()
+            .map(|(i, effect)| {
+                effect.unwrap_or_else(|| fatal!("checkpoint effect not found for {:?}", digests[i]))
+            })
+            .collect();
+
+        let executed_effects_digests = self
+            .transaction_cache_reader
+            .multi_get_executed_effects_digests(digests);
+    }
+
+    async fn execute_checkpoint(
+        &self,
+        epoch_store: Arc<AuthorityPerEpochStore>,
+        sequence_number: CheckpointSequenceNumber,
+        tx_digests: Vec<TransactionDigest>,
+        executed_fx_digests: Vec<Option<TransactionEffectsDigest>>,
+        effects: Vec<TransactionEffects>,
+    ) {
+        let mut unexecuted_tx_digests = Vec::with_capacity(tx_digests.len());
+        let mut unexecuted_tx_indices = Vec::with_capacity(tx_digests.len());
+
+        for (i, executed_fx_digest) in executed_fx_digests.iter().enumerate() {
+            if let Some(executed_fx_digest) = executed_fx_digest {
+                debug_assert_eq!(*executed_fx_digest, effects[i].digest());
+            } else {
+                unexecuted_tx_digests.push(tx_digests[i]);
+                unexecuted_tx_indices.push(i);
+            }
+        }
+
+        let unexecuted_txns: Vec<_> = self
+            .transaction_cache_reader
+            .multi_get_transaction_blocks(&unexecuted_tx_digests)
+            .into_iter()
+            .enumerate()
+            .map(|(i, tx)| {
+                let tx = tx.unwrap_or_else(|| {
+                    fatal!("transaction not found for {:?}", unexecuted_tx_digests[i])
+                });
+                VerifiedExecutableTransaction::new_from_checkpoint(
+                    VerifiedTransaction::new_unchecked(tx),
+                    epoch_store.epoch(),
+                    sequence_number,
+                )
+            })
+            .collect();
+
+        for (idx, tx) in itertools::izip!(unexecuted_tx_indices, unexecuted_txns) {
+            if tx.contains_shared_object() {
+                // TODO: this does get_or_init_next_object_versions one-by-one. Coalesce all objects
+                // from all transactions and init them all at once.
+                // also, we should keep a cache of objects that are known to be initialized
+                epoch_store
+                    .acquire_shared_version_assignments_from_effects(
+                        tx.as_ref(),
+                        &effects[idx],
+                        &self.object_cache_reader,
+                    )
+                    .await
+                    .expect("failed to acquire shared object versions");
+            }
+        }
+
+        self.tx_manager
+            .enqueue_with_expected_effects_digest(unexecuted_txns, &self.epoch_store);
     }
 }

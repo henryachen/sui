@@ -1418,4 +1418,11 @@ impl RunWithRange {
     pub fn matches_checkpoint(&self, seq_num: CheckpointSequenceNumber) -> bool {
         matches!(self, RunWithRange::Checkpoint(seq) if *seq == seq_num)
     }
+
+    pub fn into_checkpoint_bound(self) -> Option<CheckpointSequenceNumber> {
+        match self {
+            RunWithRange::Epoch(_) => None,
+            RunWithRange::Checkpoint(seq) => Some(seq),
+        }
+    }
 }
