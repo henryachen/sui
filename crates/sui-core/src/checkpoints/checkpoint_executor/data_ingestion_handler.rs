@@ -8,37 +8,22 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use sui_storage::blob::{Blob, BlobEncoding};
 use sui_types::digests::TransactionDigest;
-use sui_types::effects::TransactionEffectsAPI;
+use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
 use sui_types::error::{SuiError, SuiResult, UserInputError};
+use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::full_checkpoint_content::{CheckpointData, CheckpointTransaction};
-use sui_types::messages_checkpoint::VerifiedCheckpoint;
+use sui_types::messages_checkpoint::{CheckpointContents, VerifiedCheckpoint};
 use sui_types::storage::ObjectKey;
 
 pub(crate) fn load_checkpoint_data(
     checkpoint: VerifiedCheckpoint,
+    checkpoint_contents: CheckpointContents,
+    transactions: Vec<VerifiedExecutableTransaction>,
+    effects: Vec<TransactionEffects>,
     object_cache_reader: &dyn ObjectCacheRead,
     transaction_cache_reader: &dyn TransactionCacheRead,
-    checkpoint_store: Arc<CheckpointStore>,
     transaction_digests: &[TransactionDigest],
 ) -> SuiResult<CheckpointData> {
-    let checkpoint_contents = checkpoint_store
-        .get_checkpoint_contents(&checkpoint.content_digest)?
-        .expect("checkpoint content has to be stored");
-
-    let transactions = transaction_cache_reader
-        .multi_get_transaction_blocks(transaction_digests)
-        .into_iter()
-        .zip(transaction_digests)
-        .map(|(tx, digest)| tx.ok_or(SuiError::TransactionNotFound { digest: *digest }))
-        .collect::<SuiResult<Vec<_>>>()?;
-
-    let effects = transaction_cache_reader
-        .multi_get_executed_effects(transaction_digests)
-        .into_iter()
-        .zip(transaction_digests)
-        .map(|(effects, &digest)| effects.ok_or(SuiError::TransactionNotFound { digest }))
-        .collect::<SuiResult<Vec<_>>>()?;
-
     let event_digests = effects
         .iter()
         .flat_map(|fx| fx.events_digest().copied())
