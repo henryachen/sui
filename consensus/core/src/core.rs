@@ -32,6 +32,7 @@ use crate::{
     error::{ConsensusError, ConsensusResult},
     leader_schedule::LeaderSchedule,
     round_prober::QuorumRound,
+    round_tracker::PeerRoundTracker,
     stake_aggregator::{QuorumThreshold, StakeAggregator},
     transaction::TransactionConsumer,
     universal_committer::{
@@ -101,6 +102,7 @@ pub(crate) struct Core {
     // information to decide whether to include that authority block in the next
     // proposal or not.
     ancestor_state_manager: AncestorStateManager,
+    round_tracker: PeerRoundTracker,
 }
 
 impl Core {
@@ -162,6 +164,8 @@ impl Core {
         let mut ancestor_state_manager = AncestorStateManager::new(context.clone());
         ancestor_state_manager.set_propagation_scores(propagation_scores);
 
+        let round_tracker = PeerRoundTracker::new(context.clone());
+
         Self {
             context,
             last_signaled_round,
@@ -179,6 +183,7 @@ impl Core {
             dag_state,
             last_known_proposed_round: min_propose_round,
             ancestor_state_manager,
+            round_tracker,
         }
         .recover()
     }
@@ -330,6 +335,24 @@ impl Core {
         }
 
         Ok(missing_block_refs)
+    }
+
+    pub(crate) fn update_peer_accepted_rounds(
+        &mut self,
+        extended_block: ExtendedBlock,
+    ) -> ConsensusResult<()> {
+        let _scope = monitored_scope("Core::update_peer_accepted_rounds");
+        let _s = self
+            .context
+            .metrics
+            .node_metrics
+            .scope_processing_time
+            .with_label_values(&["Core::update_peer_accepted_rounds"])
+            .start_timer();
+
+        self.round_tracker.update_from_block(extended_block);
+
+        Ok(())
     }
 
     /// If needed, signals a new clock round and sets up leader timeout.

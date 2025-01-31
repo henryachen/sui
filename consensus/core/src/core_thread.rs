@@ -21,7 +21,7 @@ use tokio::sync::{oneshot, watch};
 use tracing::warn;
 
 use crate::{
-    block::{BlockRef, Round, VerifiedBlock},
+    block::{BlockRef, ExtendedBlock, Round, VerifiedBlock},
     context::Context,
     core::Core,
     core_thread::CoreError::Shutdown,
@@ -44,6 +44,7 @@ enum CoreThreadCommand {
     NewBlock(Round, oneshot::Sender<()>, bool),
     /// Request missing blocks that need to be synced.
     GetMissing(oneshot::Sender<BTreeSet<BlockRef>>),
+    UpdatePeerAcceptedRounds(ExtendedBlock, oneshot::Sender<()>),
 }
 
 #[derive(Error, Debug)]
@@ -67,6 +68,10 @@ pub trait CoreThreadDispatcher: Sync + Send + 'static {
     async fn new_block(&self, round: Round, force: bool) -> Result<(), CoreError>;
 
     async fn get_missing_blocks(&self) -> Result<BTreeSet<BlockRef>, CoreError>;
+    async fn set_peer_accepted_rounds_from_block(
+        &self,
+        extended_block: ExtendedBlock,
+    ) -> Result<(), CoreError>;
 
     /// Informs the core whether consumer of produced blocks exists.
     /// This is only used by core to decide if it should propose new blocks.
@@ -128,9 +133,9 @@ impl CoreThread {
                             let missing_block_refs = self.core.add_blocks(blocks)?;
                             sender.send(missing_block_refs).ok();
                         }
-                        CoreThreadCommand::CheckBlockRefs(blocks, sender) => {
-                            let _scope = monitored_scope("CoreThread::loop::find_excluded_blocks");
-                            let missing_block_refs = self.core.check_block_refs(blocks)?;
+                        CoreThreadCommand::CheckBlockRefs(block_refs, sender) => {
+                            let _scope = monitored_scope("CoreThread::loop::check_block_refs");
+                            let missing_block_refs = self.core.check_block_refs(block_refs)?;
                             sender.send(missing_block_refs).ok();
                         }
                         CoreThreadCommand::NewBlock(round, sender, force) => {
@@ -141,6 +146,11 @@ impl CoreThread {
                         CoreThreadCommand::GetMissing(sender) => {
                             let _scope = monitored_scope("CoreThread::loop::get_missing");
                             sender.send(self.core.get_missing_blocks()).ok();
+                        }
+                        CoreThreadCommand::UpdatePeerAcceptedRounds(extended_block, sender) => {
+                            let _scope = monitored_scope("CoreThread::loop::update_peer_accepted_rounds");
+                            self.core.update_peer_accepted_rounds(extended_block);
+                            sender.send(()).ok();
                         }
                     }
                 }
@@ -320,6 +330,19 @@ impl CoreThreadDispatcher for ChannelCoreThreadDispatcher {
     async fn get_missing_blocks(&self) -> Result<BTreeSet<BlockRef>, CoreError> {
         let (sender, receiver) = oneshot::channel();
         self.send(CoreThreadCommand::GetMissing(sender)).await;
+        receiver.await.map_err(|e| Shutdown(e.to_string()))
+    }
+
+    async fn set_peer_accepted_rounds_from_block(
+        &self,
+        extended_block: ExtendedBlock,
+    ) -> Result<(), CoreError> {
+        let (sender, receiver) = oneshot::channel();
+        self.send(CoreThreadCommand::UpdatePeerAcceptedRounds(
+            extended_block,
+            sender,
+        ))
+        .await;
         receiver.await.map_err(|e| Shutdown(e.to_string()))
     }
 
