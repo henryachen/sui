@@ -271,19 +271,6 @@ pub enum TrafficControlPolicy {
     TestPanicOnInvocation(TestPanicOnInvocationPolicy),
 }
 
-// impl CloneToUnit for TrafficControlPolicy {
-//     fn clone_to_unit(&self) -> Self {
-//         match self {
-//             Self::FreqThreshold(_) => Self::FreqThreshold(FreqThresholdPolicy::default()),
-//             Self::NoOp(_) => Self::NoOp(NoOpPolicy::default()),
-//             Self::TestNConnIP(_) => Self::TestNConnIP(TestNConnIPPolicy::default()),
-//             Self::TestPanicOnInvocation(_) => {
-//                 Self::TestPanicOnInvocation(TestPanicOnInvocationPolicy::default())
-//             }
-//         }
-//     }
-// }
-
 impl Policy for TrafficControlPolicy {
     fn handle_tally(&mut self, tally: TrafficTally) -> PolicyResponse {
         match self {
