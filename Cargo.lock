@@ -15155,6 +15155,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tracing",
+ "url",
 ]
 
 [[package]]
