@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::{BTreeMap, HashMap};
+
 use anyhow::Context as _;
 use futures::future;
 
@@ -15,7 +17,7 @@ use move_core_types::language_storage::TypeTag;
 use serde::{Deserialize, Serialize};
 use sui_indexer_alt_schema::objects::StoredCoinOwnerKind;
 use sui_indexer_alt_schema::schema::coin_balance_buckets;
-use sui_json_rpc_types::{Coin, Page as JsonRpcPage};
+use sui_json_rpc_types::{Balance, Coin, Page as JsonRpcPage};
 use sui_open_rpc::Module;
 use sui_open_rpc_macros::open_rpc;
 use sui_types::{
@@ -53,6 +55,14 @@ trait CoinApi {
         /// maximum number of items per page
         limit: Option<usize>,
     ) -> RpcResult<JsonRpcPage<Coin, String>>;
+
+    /// Return the total coin balance for all coin type, owned by the address owner.
+    #[method(name = "getAllBalances")]
+    async fn get_all_balances(
+        &self,
+        /// the owner's Sui address
+        owner: SuiAddress,
+    ) -> RpcResult<Vec<Balance>>;
 }
 
 pub(crate) struct CoinServer(pub Context, pub CoinConfig);
@@ -123,6 +133,39 @@ impl CoinApiServer for CoinServer {
             .await
             .with_internal_context(|| format!("Failed to get coins for {owner}"))?)
     }
+
+    async fn get_all_balances(&self, owner: SuiAddress) -> RpcResult<Vec<Balance>> {
+        let coin_ids = self.get_coin_id_page(owner, None, None, None).await?;
+        let coin_futures = coin_ids.data.iter().map(|id| self.coin_response(*id));
+        let coins = future::join_all(coin_futures)
+            .await
+            .into_iter()
+            .zip(coin_ids.data)
+            .map(|(r, c)| {
+                let id = c;
+                r.with_internal_context(|| format!("Failed to get object {id}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Using a BTreeMap so that the ordering of keys is deterministic.
+        let mut balance_map: BTreeMap<String, (usize, u128)> = BTreeMap::new();
+        for coin in coins {
+            let entry = balance_map.entry(coin.coin_type).or_insert((0, 0));
+            entry.0 += 1;
+            entry.1 += coin.balance as u128;
+        }
+        let balances: Vec<Balance> = balance_map
+            .into_iter()
+            .map(|(coin_type, (coin_object_count, total_balance))| Balance {
+                coin_type,
+                coin_object_count,
+                total_balance,
+                // LockedCoin is deprecated
+                locked_balance: HashMap::new(),
+            })
+            .collect();
+        Ok(balances)
+    }
 }
 
 impl CoinServer {
@@ -144,7 +187,9 @@ impl CoinServer {
         )?;
 
         // We get all the qualified coin ids first.
-        let coin_id_page = self.get_coin_id_page(owner, coin_type_tag, page).await?;
+        let coin_id_page = self
+            .get_coin_id_page(owner, coin_type_tag, page.cursor, Some(page.limit))
+            .await?;
 
         let coin_futures = coin_id_page.data.iter().map(|id| self.coin_response(*id));
 
@@ -169,7 +214,8 @@ impl CoinServer {
         &self,
         owner: SuiAddress,
         coin_type_tag: Option<TypeTag>,
-        page: Page<BalanceCursor>,
+        cursor: Option<Cursor<BalanceCursor>>,
+        limit: Option<i64>,
     ) -> Result<JsonRpcPage<ObjectID, String>, RpcError<Error>> {
         use coin_balance_buckets::dsl as cb;
 
@@ -179,8 +225,6 @@ impl CoinServer {
             .connect()
             .await
             .context("Failed to connect to database")?;
-
-        let limit = page.limit;
 
         // We use two aliases of coin_balance_buckets to make the query more readable.
         let (candidates, newer) = diesel::alias!(
@@ -231,7 +275,7 @@ impl CoinServer {
             object_id,
             cp_sequence_number,
             coin_balance_bucket,
-        })) = page.cursor
+        })) = cursor
         {
             query = query
                 .filter(candidates!(cp_sequence_number).le(cp_sequence_number))
@@ -249,8 +293,11 @@ impl CoinServer {
         // Finally we order by coin_balance_bucket and break ties by object_id.
         query = query
             .order_by(candidates!(coin_balance_bucket).desc())
-            .then_order_by(candidates!(object_id).asc())
-            .limit(limit + 1);
+            .then_order_by(candidates!(object_id).asc());
+
+        if let Some(limit) = limit {
+            query = query.limit(limit + 1);
+        }
 
         #[derive(Queryable, Debug, Serialize, Deserialize)]
         #[diesel(table_name = coin_balance_buckets)]
@@ -263,10 +310,14 @@ impl CoinServer {
         let mut buckets: Vec<IdCpBalance> =
             conn.results(query).await.context("Failed to query coins")?;
 
+        let mut has_next_page = false;
+
         // Now gather pagination info.
-        let has_next_page = buckets.len() > limit as usize;
-        if has_next_page {
-            buckets.truncate(limit as usize);
+        if let Some(limit) = limit {
+            has_next_page = buckets.len() > limit as usize;
+            if has_next_page {
+                buckets.truncate(limit as usize);
+            }
         }
 
         let next_cursor = buckets
