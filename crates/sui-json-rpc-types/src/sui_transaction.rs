@@ -555,6 +555,11 @@ impl SuiTransactionBlockKind {
                             ) => SuiEndOfEpochTransactionKind::BridgeCommitteeUpdate(
                                 bridge_shared_version,
                             ),
+                            EndOfEpochTransactionKind::StoreExecutionTimeObservations(
+                                _estimates,
+                            ) => {
+                                todo!() // TODO-DNS
+                            }
                         })
                         .collect(),
                 })
@@ -653,6 +658,11 @@ impl SuiTransactionBlockKind {
                             }
                             EndOfEpochTransactionKind::BridgeCommitteeInit(seq) => {
                                 SuiEndOfEpochTransactionKind::BridgeCommitteeUpdate(seq)
+                            }
+                            EndOfEpochTransactionKind::StoreExecutionTimeObservations(
+                                _estimates,
+                            ) => {
+                                todo!() // TODO-DNS
                             }
                         })
                         .collect(),

@@ -50,6 +50,7 @@ use std::{
 };
 use sui_config::node::{AuthorityOverloadConfig, StateDebugDumpConfig};
 use sui_config::NodeConfig;
+use sui_protocol_config::PerObjectCongestionControlMode;
 use sui_types::crypto::RandomnessRound;
 use sui_types::dynamic_field::visitor as DFV;
 use sui_types::execution::ExecutionTiming;
@@ -4968,6 +4969,28 @@ impl AuthorityState {
         Some(tx)
     }
 
+    #[instrument(level = "debug", skip_all)]
+    fn create_execution_time_observations_tx(
+        &self,
+        epoch_store: &Arc<AuthorityPerEpochStore>,
+    ) -> Option<EndOfEpochTransactionKind> {
+        if epoch_store
+            .protocol_config()
+            .per_object_congestion_control_mode()
+            != PerObjectCongestionControlMode::ExecutionTimeEstimate
+        {
+            return None;
+        }
+
+        let tx = EndOfEpochTransactionKind::new_store_execution_time_observations(
+            epoch_store
+                .get_end_of_epoch_execution_time_observations()
+                .to_owned(),
+        );
+        info!("Creating StoreExecutionTimeObservations tx");
+        Some(tx)
+    }
+
     /// Creates and execute the advance epoch transaction to effects without committing it to the database.
     /// The effects of the change epoch tx are only written to the database after a certified checkpoint has been
     /// formed and executed by CheckpointExecutor.
@@ -5001,6 +5024,9 @@ impl AuthorityState {
             txns.push(tx);
         }
         if let Some(tx) = self.create_deny_list_state_tx(epoch_store) {
+            txns.push(tx);
+        }
+        if let Some(tx) = self.create_execution_time_observations_tx(epoch_store) {
             txns.push(tx);
         }
 

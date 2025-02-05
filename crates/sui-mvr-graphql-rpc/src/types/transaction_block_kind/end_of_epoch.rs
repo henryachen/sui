@@ -301,6 +301,9 @@ impl EndOfEpochTransactionKind {
                     checkpoint_viewed_at,
                 })
             }
+            N::StoreExecutionTimeObservations(_) => {
+                todo!() // TODO-DNS
+            }
         }
     }
 }
