@@ -395,6 +395,7 @@ impl CheckpointExecutorV2 {
         epoch_store: &AuthorityPerEpochStore,
         tx_manager: &TransactionManager,
         transaction_cache_reader: &dyn TransactionCacheRead,
+        object_cache_reader: &dyn ObjectCacheRead,
         checkpoint: &VerifiedCheckpoint,
         tx_digests: &[TransactionDigest],
         fx_digests: &[TransactionEffectsDigest],
@@ -427,13 +428,11 @@ impl CheckpointExecutorV2 {
 
         for ((tx, _), effects) in itertools::izip!(unexecuted_txns, unexecuted_effects) {
             if tx.contains_shared_object() {
-                epoch_store
-                    .acquire_shared_version_assignments_from_effects(
-                        tx,
-                        effects,
-                        object_cache_reader,
-                    )
-                    .await?;
+                epoch_store.acquire_shared_version_assignments_from_effects(
+                    &tx,
+                    effects,
+                    object_cache_reader,
+                )?;
             }
         }
 

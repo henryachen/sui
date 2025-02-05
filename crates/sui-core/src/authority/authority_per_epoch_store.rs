@@ -2065,7 +2065,7 @@ impl AuthorityPerEpochStore {
     /// Used by full nodes who don't listen to consensus, and validators who catch up by state sync.
     // TODO: We should be able to pass in a vector of certs/effects and acquire them all at once.
     #[instrument(level = "trace", skip_all)]
-    pub async fn acquire_shared_version_assignments_from_effects(
+    pub fn acquire_shared_version_assignments_from_effects(
         &self,
         certificate: &VerifiedExecutableTransaction,
         effects: &TransactionEffects,
