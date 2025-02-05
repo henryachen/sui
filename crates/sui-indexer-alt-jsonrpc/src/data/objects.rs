@@ -89,37 +89,3 @@ pub(crate) async fn load_latest(
 
     Ok(stored)
 }
-
-pub(crate) async fn fetch_latest(
-    loader: &DataLoader<Reader>,
-    keys: &[ObjectID],
-) -> Result<HashMap<ObjectID, StoredObject>, Arc<ReadError>> {
-    // First, fetch the latest version numbers of each object.
-    let latest_version_keys: Vec<LatestObjectVersionKey> = keys
-        .iter()
-        .map(|key| LatestObjectVersionKey(key.clone()))
-        .collect();
-
-    let latest_version_numbers = loader.load_many(latest_version_keys).await?;
-
-    // Then, fetch the contents of each object at its latest version.
-    let versioned_object_keys: Vec<VersionedObjectKey> = latest_version_numbers
-        .iter()
-        .map(|(k, v)| VersionedObjectKey(k.0, v.object_version as u64))
-        .collect();
-
-    let stored_objects: HashMap<ObjectID, StoredObject> = loader
-        .load_many(versioned_object_keys)
-        .await?
-        .into_iter()
-        .map(|(k, v)| (k.0, v))
-        .collect();
-
-    Ok(keys
-        .iter()
-        .filter_map(|key| {
-            let stored = stored_objects.get(&key)?;
-            Some((*key, stored.clone()))
-        })
-        .collect())
-}

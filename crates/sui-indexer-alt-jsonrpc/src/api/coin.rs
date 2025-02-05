@@ -2,17 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::Context as _;
+use futures::future;
 
 use super::rpc_module::RpcModule;
 use crate::context::Context;
-use crate::data::objects::fetch_latest;
+use crate::data::objects::load_latest;
 use crate::error::{invalid_params, InternalContext, RpcError};
 use crate::paginate::{Cursor, Page};
 use diesel::prelude::*;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use move_core_types::language_storage::TypeTag;
 use serde::{Deserialize, Serialize};
-use sui_indexer_alt_schema::objects::StoredObject;
+use sui_indexer_alt_schema::objects::StoredCoinOwnerKind;
 use sui_indexer_alt_schema::schema::coin_balance_buckets;
 use sui_json_rpc_types::{Coin, Page as JsonRpcPage};
 use sui_open_rpc::Module;
@@ -26,12 +27,18 @@ use sui_types::{
 #[open_rpc(namespace = "suix", tag = "Coin API")]
 #[rpc(server, namespace = "suix")]
 trait CoinApi {
+    /// Return Coin objects owned by an address with a specified coin type.
+    /// If no coin type is specified, SUI coins are returned.
     #[method(name = "getCoins")]
     async fn get_coins(
         &self,
+        /// the owner's Sui address
         owner: SuiAddress,
+        /// optional coin type
         coin_type: Option<String>,
+        /// optional paging cursor
         cursor: Option<String>,
+        /// maximum number of items per page
         limit: Option<usize>,
     ) -> RpcResult<JsonRpcPage<Coin, String>>;
 
@@ -65,26 +72,17 @@ pub(crate) enum Error {
     #[error("Pagination issue: {0}")]
     Pagination(#[from] crate::paginate::Error),
 
-    #[error("Error resolving type information: {0}")]
-    Resolution(anyhow::Error),
-
-    #[error("Deserialization error: {0}")]
-    Deserialization(#[from] bcs::Error),
-}
-
-#[derive(Queryable, Selectable, Debug, Serialize, Deserialize)]
-#[diesel(table_name = coin_balance_buckets)]
-struct IdCpBalance {
-    object_id: Vec<u8>,
-    #[allow(unused)]
-    cp_sequence_number: i64,
-    coin_balance_bucket: Option<i16>,
+    #[error("Failed to parse type {0:?}: {1}")]
+    BadType(String, anyhow::Error),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct BalanceCursor {
+    #[serde(rename = "o")]
     object_id: ObjectID,
+    #[serde(rename = "c")]
     cp_sequence_number: i64,
+    #[serde(rename = "b")]
     coin_balance_bucket: i16,
 }
 
@@ -99,14 +97,19 @@ impl CoinApiServer for CoinServer {
     ) -> RpcResult<JsonRpcPage<Coin, String>> {
         let coin_struct_tag = if let Some(coin_type) = coin_type {
             sui_types::parse_sui_type_tag(&coin_type)
-                .map_err(|e| invalid_params(Error::Resolution(e)))?
+                .map_err(|e| invalid_params(Error::BadType(coin_type, e)))?
         } else {
             GAS::type_tag()
         };
         Ok(self
-            .get_coins_impl(owner, Some(coin_struct_tag), cursor, limit)
+            .get_coins_impl(owner, Some(coin_struct_tag.clone()), cursor, limit)
             .await
-            .internal_context("Failed to get coins")?)
+            .with_internal_context(|| {
+                format!(
+                    "Failed to get coins for {owner} and coin type {}",
+                    coin_struct_tag
+                )
+            })?)
     }
 
     async fn get_all_coins(
@@ -118,7 +121,7 @@ impl CoinApiServer for CoinServer {
         Ok(self
             .get_coins_impl(owner, None, cursor, limit)
             .await
-            .internal_context("Failed to get coins")?)
+            .with_internal_context(|| format!("Failed to get coins for {owner}"))?)
     }
 }
 
@@ -130,7 +133,7 @@ impl CoinServer {
         cursor: Option<String>,
         limit: Option<usize>,
     ) -> Result<JsonRpcPage<Coin, String>, RpcError<Error>> {
-        let Self(ctx, config) = self;
+        let Self(_, config) = self;
 
         let page: Page<BalanceCursor> = Page::from_params(
             config.default_page_size,
@@ -143,24 +146,17 @@ impl CoinServer {
         // We get all the qualified coin ids first.
         let coin_id_page = self.get_coin_id_page(owner, coin_type_tag, page).await?;
 
-        // Then we load the actual objects from kv, to render the coins.
-        let objects = fetch_latest(ctx.loader(), &coin_id_page.data)
+        let coin_futures = coin_id_page.data.iter().map(|id| self.coin_response(*id));
+
+        let coins = future::join_all(coin_futures)
             .await
-            .context("Failed to load latest coins")?;
-
-        // The resulting objects are no longer sorted according to original order so we sort them to match coin_ids order.
-        let sorted_objects = coin_id_page
-            .data
-            .iter()
-            .filter_map(|key| objects.get(key).cloned())
-            .collect::<Vec<_>>();
-
-        // Finally convert objects to coins.
-        let coins: Vec<Coin> = sorted_objects
             .into_iter()
-            .map(|o| try_convert_object_into_coin(o))
-            .collect::<Result<Vec<_>, _>>()
-            .context("Failed to convert object to coin")?;
+            .zip(coin_id_page.data)
+            .map(|(r, c)| {
+                let id = c;
+                r.with_internal_context(|| format!("Failed to get object {id}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(JsonRpcPage {
             data: coins,
@@ -218,6 +214,7 @@ impl CoinServer {
                     .and(candidates!(cp_sequence_number).lt(newer!(cp_sequence_number)))),
             )
             .filter(newer!(object_id).is_null())
+            .filter(candidates!(owner_kind).eq(StoredCoinOwnerKind::Fastpath))
             .filter(candidates!(owner_id).eq(owner.to_vec()))
             .filter(candidates!(coin_balance_bucket).is_not_null())
             .into_boxed();
@@ -237,7 +234,7 @@ impl CoinServer {
         })) = page.cursor
         {
             query = query
-                .filter(candidates!(cp_sequence_number).le(cp_sequence_number as i64))
+                .filter(candidates!(cp_sequence_number).le(cp_sequence_number))
                 .filter(
                     // Since the result is ordered by coin_balance_bucket followed by object_id,
                     // we need to filter by coin_balance_bucket first, then if balance bucket is the same, object_id.
@@ -252,7 +249,16 @@ impl CoinServer {
         // Finally we order by coin_balance_bucket and break ties by object_id.
         query = query
             .order_by(candidates!(coin_balance_bucket).desc())
-            .then_order_by(candidates!(object_id).asc());
+            .then_order_by(candidates!(object_id).asc())
+            .limit(limit + 1);
+
+        #[derive(Queryable, Debug, Serialize, Deserialize)]
+        #[diesel(table_name = coin_balance_buckets)]
+        struct IdCpBalance {
+            object_id: Vec<u8>,
+            cp_sequence_number: i64,
+            coin_balance_bucket: Option<i16>,
+        }
 
         let mut buckets: Vec<IdCpBalance> =
             conn.results(query).await.context("Failed to query coins")?;
@@ -293,6 +299,38 @@ impl CoinServer {
             has_next_page,
         })
     }
+
+    async fn coin_response(&self, id: ObjectID) -> Result<Coin, RpcError<Error>> {
+        let Self(ctx, _) = self;
+        let stored_object = load_latest(ctx.loader(), id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Failed to load latest object {:?}", id))?;
+
+        let object: Object =
+            bcs::from_bytes(&stored_object.serialized_object.ok_or_else(|| {
+                anyhow::anyhow!("Failed to deserialize object {:?}", stored_object.object_id)
+            })?)
+            .context("Failed to deserialize object")?;
+        let coin_object_id = object.id();
+        let digest = object.digest();
+        let version = object.version();
+        let previous_transaction = object.as_inner().previous_transaction;
+        let coin = object
+            .as_coin_maybe()
+            .ok_or(anyhow::anyhow!("Object is expected to be a coin"))?;
+        let coin_type = object
+            .coin_type_maybe()
+            .ok_or(anyhow::anyhow!("Object is expected to have a coin type"))?
+            .to_canonical_string(/* with_prefix */ true);
+        Ok(Coin {
+            coin_type,
+            coin_object_id,
+            version,
+            digest,
+            balance: coin.balance.value(),
+            previous_transaction,
+        })
+    }
 }
 
 impl RpcModule for CoinServer {
@@ -312,25 +350,4 @@ impl Default for CoinConfig {
             max_page_size: 100,
         }
     }
-}
-
-fn try_convert_object_into_coin(object: StoredObject) -> Result<Coin, Error> {
-    let object: Object = bcs::from_bytes(&object.serialized_object.unwrap()).unwrap();
-    let coin_object_id = object.id();
-    let digest = object.digest();
-    let version = object.version();
-    let previous_transaction = object.as_inner().previous_transaction;
-    let coin = object.as_coin_maybe().unwrap();
-    let coin_type = object
-        .coin_type_maybe()
-        .unwrap()
-        .to_canonical_string(/* with_prefix */ true);
-    Ok(Coin {
-        coin_type,
-        coin_object_id,
-        version,
-        digest,
-        balance: coin.balance.value(),
-        previous_transaction,
-    })
 }

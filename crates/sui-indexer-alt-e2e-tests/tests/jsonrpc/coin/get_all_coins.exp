@@ -84,7 +84,7 @@ Response: {
         "previousTransaction": "4Mpg2JTgZa2pt8akvsiqazRZohAbsVBUVVemra6eAR3d"
       }
     ],
-    "nextCursor": "eyJvYmplY3RfaWQiOiIweDg5OTM3ZmViYjczY2Y3ODNhNjM3MjRiMTJiZGZkYzgxMTJhZWFhYzc4NDY2YjQ2MzcxMDUwNmFhNzI2MjQzMTciLCJjcF9zZXF1ZW5jZV9udW1iZXIiOjEsImNvaW5fYmFsYW5jZV9idWNrZXQiOjB9",
+    "nextCursor": "eyJvIjoiMHg4OTkzN2ZlYmI3M2NmNzgzYTYzNzI0YjEyYmRmZGM4MTEyYWVhYWM3ODQ2NmI0NjM3MTA1MDZhYTcyNjI0MzE3IiwiYyI6MSwiYiI6MH0=",
     "hasNextPage": false
   }
 }
@@ -113,7 +113,7 @@ Response: {
         "previousTransaction": "3Eua5XMZMGKPyYtTYdT55ppG3i2Gc25zfrBYFuiVi5Y4"
       }
     ],
-    "nextCursor": "eyJvYmplY3RfaWQiOiIweDQzMmM3Yzg3YzYwOWI1YzllNGNmMjA4MTZhNGQyOTNiYTExZmQ2YzEzNjEzYTEzZmZjYzRiMTcyMjA3NzkwNzIiLCJjcF9zZXF1ZW5jZV9udW1iZXIiOjEsImNvaW5fYmFsYW5jZV9idWNrZXQiOjN9",
+    "nextCursor": "eyJvIjoiMHg0MzJjN2M4N2M2MDliNWM5ZTRjZjIwODE2YTRkMjkzYmExMWZkNmMxMzYxM2ExM2ZmY2M0YjE3MjIwNzc5MDcyIiwiYyI6MSwiYiI6M30=",
     "hasNextPage": false
   }
 }

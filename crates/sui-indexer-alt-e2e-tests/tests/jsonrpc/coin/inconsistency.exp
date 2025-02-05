@@ -3,7 +3,7 @@ processed 10 tasks
 init:
 A: object(0,0), B: object(0,1)
 
-task 1, lines 12-14:
+task 1, lines 13-15:
 //# programmable --sender A --inputs 12000 @A
 //> 0: SplitCoins(Gas, [Input(0)]);
 //> 1: TransferObjects([Result(0)], Input(1))
@@ -11,7 +11,7 @@ created: object(1,0)
 mutated: object(0,0)
 gas summary: computation_cost: 1000000, storage_cost: 1976000,  storage_rebate: 0, non_refundable_storage_fee: 0
 
-task 2, lines 16-18:
+task 2, lines 17-19:
 //# programmable --sender A --inputs 3400 @A
 //> 0: SplitCoins(Gas, [Input(0)]);
 //> 1: TransferObjects([Result(0)], Input(1))
@@ -19,7 +19,7 @@ created: object(2,0)
 mutated: object(0,0)
 gas summary: computation_cost: 1000000, storage_cost: 1976000,  storage_rebate: 978120, non_refundable_storage_fee: 9880
 
-task 3, line 20:
+task 3, line 21:
 //# view-object 1,0
 Owner: Account Address ( A )
 Version: 2
@@ -34,7 +34,7 @@ Contents: sui::coin::Coin<sui::sui::SUI> {
     },
 }
 
-task 4, line 22:
+task 4, line 23:
 //# view-object 2,0
 Owner: Account Address ( A )
 Version: 3
@@ -49,11 +49,11 @@ Contents: sui::coin::Coin<sui::sui::SUI> {
     },
 }
 
-task 5, line 24:
+task 5, line 25:
 //# create-checkpoint
 Checkpoint created: 1
 
-task 6, lines 26-30:
+task 6, lines 27-31:
 //# run-jsonrpc
 Response: {
   "jsonrpc": "2.0",
@@ -75,22 +75,14 @@ Response: {
         "digest": "gMNG9ZADuKXKq5PoHpFbspGzEv9kZ4ifgvXXswLjthf",
         "balance": "12000",
         "previousTransaction": "3tfDJdUhJPunyaRVaMnTiLzHdyryECfepHu6LfUXUsDN"
-      },
-      {
-        "coinType": "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
-        "coinObjectId": "0xa9a2c06be125dfa73fab40fdcca74eb80251de59c95a4baf07e13e1435fe19cd",
-        "version": "3",
-        "digest": "HTKuvhGHQ1kFYkmbA9H99dz7oR3FQu2GqhKSmy1pL15V",
-        "balance": "3400",
-        "previousTransaction": "EK4m6HC3b7C2T7fZT9KjqugnkgPD7YsgBXGoG9WAFmQN"
       }
     ],
-    "nextCursor": "eyJvYmplY3RfaWQiOiIweGE5YTJjMDZiZTEyNWRmYTczZmFiNDBmZGNjYTc0ZWI4MDI1MWRlNTljOTVhNGJhZjA3ZTEzZTE0MzVmZTE5Y2QiLCJjcF9zZXF1ZW5jZV9udW1iZXIiOjEsImNvaW5fYmFsYW5jZV9idWNrZXQiOjN9",
-    "hasNextPage": false
+    "nextCursor": "eyJvIjoiMHhlNGE3ZGU4ZTIzMzZhMzRkOGE0YTU0NDU0NmVlY2ZmYWQ3NDgxNTZhOGZiNjJkZDRlNmMwMzA0MjRkNDllMjU5IiwiYyI6MSwiYiI6NH0=",
+    "hasNextPage": true
   }
 }
 
-task 7, lines 32-34:
+task 7, lines 33-35:
 //# programmable --sender A --inputs object(2,0) 2000 @A
 //> 0: SplitCoins(Input(0), [Input(1)]);
 //> 1: TransferObjects([Result(0)], Input(2))
@@ -98,12 +90,12 @@ created: object(7,0)
 mutated: object(0,0), object(2,0)
 gas summary: computation_cost: 1000000, storage_cost: 2964000,  storage_rebate: 1956240, non_refundable_storage_fee: 19760
 
-task 8, line 36:
+task 8, line 37:
 //# create-checkpoint
 Checkpoint created: 2
 
-task 9, lines 38-42:
-//# run-jsonrpc --cursors {"object_id":@{obj_1_0},"cp_sequence_number":1,"coin_balance_bucket":4}
+task 9, lines 39-43:
+//# run-jsonrpc --cursors {"o":"@{obj_1_0}","c":1,"b":4}
 Response: {
   "jsonrpc": "2.0",
   "id": 1,
@@ -118,7 +110,7 @@ Response: {
         "previousTransaction": "AXzgRv8bvNPQvMiETHqWkQ9oQhWb8QF2PUurfXeEFUyT"
       }
     ],
-    "nextCursor": "eyJvYmplY3RfaWQiOiIweGE5YTJjMDZiZTEyNWRmYTczZmFiNDBmZGNjYTc0ZWI4MDI1MWRlNTljOTVhNGJhZjA3ZTEzZTE0MzVmZTE5Y2QiLCJjcF9zZXF1ZW5jZV9udW1iZXIiOjEsImNvaW5fYmFsYW5jZV9idWNrZXQiOjN9",
+    "nextCursor": "eyJvIjoiMHhhOWEyYzA2YmUxMjVkZmE3M2ZhYjQwZmRjY2E3NGViODAyNTFkZTU5Yzk1YTRiYWYwN2UxM2UxNDM1ZmUxOWNkIiwiYyI6MSwiYiI6M30=",
     "hasNextPage": false
   }
 }

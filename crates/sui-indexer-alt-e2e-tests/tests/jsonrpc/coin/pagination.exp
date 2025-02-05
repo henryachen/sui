@@ -163,13 +163,13 @@ Response: {
         "previousTransaction": "HT3v8ipX1BUP6po38Bq7VAYRAfby9KPoQSTDRxiufs3h"
       }
     ],
-    "nextCursor": "eyJvYmplY3RfaWQiOiIweDdkMDY4ZWVmYzk3YTYzNGE4YzcxZTlhY2VjNWVkYmI4MDRkNmU3NjI3ZDVkMTQ4ZjgyZjc0MjVkZWIzNTVhNGMiLCJjcF9zZXF1ZW5jZV9udW1iZXIiOjEsImNvaW5fYmFsYW5jZV9idWNrZXQiOjR9",
+    "nextCursor": "eyJvIjoiMHg3ZDA2OGVlZmM5N2E2MzRhOGM3MWU5YWNlYzVlZGJiODA0ZDZlNzYyN2Q1ZDE0OGY4MmY3NDI1ZGViMzU1YTRjIiwiYyI6MSwiYiI6NH0=",
     "hasNextPage": true
   }
 }
 
 task 15, lines 60-64:
-//# run-jsonrpc --cursors {"object_id":@{obj_2_0},"cp_sequence_number":1,"coin_balance_bucket":4}
+//# run-jsonrpc --cursors {"o":"@{obj_2_0}","c":1,"b":4}
 Response: {
   "jsonrpc": "2.0",
   "id": 1,
@@ -224,13 +224,13 @@ Response: {
         "previousTransaction": "Dy8DZVxCLuXCF1mgCEiUnyuXqHwxgiSDdM44cda6utCP"
       }
     ],
-    "nextCursor": "eyJvYmplY3RfaWQiOiIweDdjMGY3ZjVlMzk5OGFlMWRjMGY2NTFkNzAwYmIwMTMzM2RjMDcwZDZmYWUwM2UyM2RmMTI4YWNiNzEzNzkyOWYiLCJjcF9zZXF1ZW5jZV9udW1iZXIiOjEsImNvaW5fYmFsYW5jZV9idWNrZXQiOjF9",
+    "nextCursor": "eyJvIjoiMHg3YzBmN2Y1ZTM5OThhZTFkYzBmNjUxZDcwMGJiMDEzMzNkYzA3MGQ2ZmFlMDNlMjNkZjEyOGFjYjcxMzc5MjlmIiwiYyI6MSwiYiI6MX0=",
     "hasNextPage": false
   }
 }
 
 task 16, lines 66-70:
-//# run-jsonrpc --cursors {"object_id":@{obj_7_0},"cp_sequence_number":1,"coin_balance_bucket":1}
+//# run-jsonrpc --cursors {"o":"@{obj_7_0}","c":1,"b":1}
 Response: {
   "jsonrpc": "2.0",
   "id": 2,
@@ -253,7 +253,7 @@ Response: {
         "previousTransaction": "Dy8DZVxCLuXCF1mgCEiUnyuXqHwxgiSDdM44cda6utCP"
       }
     ],
-    "nextCursor": "eyJvYmplY3RfaWQiOiIweDdjMGY3ZjVlMzk5OGFlMWRjMGY2NTFkNzAwYmIwMTMzM2RjMDcwZDZmYWUwM2UyM2RmMTI4YWNiNzEzNzkyOWYiLCJjcF9zZXF1ZW5jZV9udW1iZXIiOjEsImNvaW5fYmFsYW5jZV9idWNrZXQiOjF9",
+    "nextCursor": "eyJvIjoiMHg3YzBmN2Y1ZTM5OThhZTFkYzBmNjUxZDcwMGJiMDEzMzNkYzA3MGQ2ZmFlMDNlMjNkZjEyOGFjYjcxMzc5MjlmIiwiYyI6MSwiYiI6MX0=",
     "hasNextPage": false
   }
 }
@@ -271,7 +271,7 @@ task 18, line 76:
 Checkpoint created: 2
 
 task 19, lines 78-82:
-//# run-jsonrpc --cursors {"object_id":@{obj_1_0},"cp_sequence_number":2,"coin_balance_bucket":4}
+//# run-jsonrpc --cursors {"o":"@{obj_1_0}","c":2,"b":4}
 Response: {
   "jsonrpc": "2.0",
   "id": 3,
@@ -342,13 +342,13 @@ Response: {
         "previousTransaction": "Dy8DZVxCLuXCF1mgCEiUnyuXqHwxgiSDdM44cda6utCP"
       }
     ],
-    "nextCursor": "eyJvYmplY3RfaWQiOiIweDdjMGY3ZjVlMzk5OGFlMWRjMGY2NTFkNzAwYmIwMTMzM2RjMDcwZDZmYWUwM2UyM2RmMTI4YWNiNzEzNzkyOWYiLCJjcF9zZXF1ZW5jZV9udW1iZXIiOjEsImNvaW5fYmFsYW5jZV9idWNrZXQiOjF9",
+    "nextCursor": "eyJvIjoiMHg3YzBmN2Y1ZTM5OThhZTFkYzBmNjUxZDcwMGJiMDEzMzNkYzA3MGQ2ZmFlMDNlMjNkZjEyOGFjYjcxMzc5MjlmIiwiYyI6MSwiYiI6MX0=",
     "hasNextPage": false
   }
 }
 
 task 20, lines 84-88:
-//# run-jsonrpc --cursors {"object_id":@{obj_1_0},"cp_sequence_number":1,"coin_balance_bucket":4}
+//# run-jsonrpc --cursors {"o":"@{obj_1_0}","c":1,"b":4}
 Response: {
   "jsonrpc": "2.0",
   "id": 4,
@@ -411,7 +411,7 @@ Response: {
         "previousTransaction": "Dy8DZVxCLuXCF1mgCEiUnyuXqHwxgiSDdM44cda6utCP"
       }
     ],
-    "nextCursor": "eyJvYmplY3RfaWQiOiIweDdjMGY3ZjVlMzk5OGFlMWRjMGY2NTFkNzAwYmIwMTMzM2RjMDcwZDZmYWUwM2UyM2RmMTI4YWNiNzEzNzkyOWYiLCJjcF9zZXF1ZW5jZV9udW1iZXIiOjEsImNvaW5fYmFsYW5jZV9idWNrZXQiOjF9",
+    "nextCursor": "eyJvIjoiMHg3YzBmN2Y1ZTM5OThhZTFkYzBmNjUxZDcwMGJiMDEzMzNkYzA3MGQ2ZmFlMDNlMjNkZjEyOGFjYjcxMzc5MjlmIiwiYyI6MSwiYiI6MX0=",
     "hasNextPage": false
   }
 }

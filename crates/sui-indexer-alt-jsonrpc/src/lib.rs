@@ -78,7 +78,6 @@ impl RpcService {
         let RpcArgs {
             rpc_listen_address,
             max_rpc_connections,
-            ..
         } = rpc_args;
 
         let metrics = RpcMetrics::new(registry);

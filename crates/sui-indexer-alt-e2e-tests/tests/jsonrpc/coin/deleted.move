@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // This test is to verify that deleted coins are not included in the result of suix_getCoins.
-// We create two coins, of balances 12 and 34, call the rpc method to see bot of them in the results.
+// We create two coins, of balances 12 and 34, call the rpc method to see both of them in the results.
 // Then we merge the coins and call the rpc method again to see that only the merged coin with
 // balance 46 is in the results.
 

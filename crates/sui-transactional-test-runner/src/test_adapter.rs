@@ -1362,10 +1362,7 @@ impl<'a> SuiTestAdapter {
                                 obj_lookup, variables
                             )
                             });
-                            format!(
-                                "\"{}\"",
-                                ObjectID::from_bytes(obj_id).unwrap().to_hex_uncompressed()
-                            )
+                            ObjectID::from_bytes(obj_id).unwrap().to_hex_uncompressed()
                         })
                         .to_string();
                     variables.insert(format!("cursor_{idx}"), Base64::encode(interpolated));

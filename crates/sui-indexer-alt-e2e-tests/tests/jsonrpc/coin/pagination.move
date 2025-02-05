@@ -57,13 +57,13 @@
   "params": ["@{A}", null, null, 3]
 }
 
-//# run-jsonrpc --cursors {"object_id":@{obj_2_0},"cp_sequence_number":1,"coin_balance_bucket":4}
+//# run-jsonrpc --cursors {"o":"@{obj_2_0}","c":1,"b":4}
 {
   "method": "suix_getCoins",
   "params": ["@{A}", null, "@{cursor_0}"]
 }
 
-//# run-jsonrpc --cursors {"object_id":@{obj_7_0},"cp_sequence_number":1,"coin_balance_bucket":1}
+//# run-jsonrpc --cursors {"o":"@{obj_7_0}","c":1,"b":1}
 {
   "method": "suix_getCoins",
   "params": ["@{A}", null, "@{cursor_0}"]
@@ -75,13 +75,13 @@
 
 //# create-checkpoint
 
-//# run-jsonrpc --cursors {"object_id":@{obj_1_0},"cp_sequence_number":2,"coin_balance_bucket":4}
+//# run-jsonrpc --cursors {"o":"@{obj_1_0}","c":2,"b":4}
 {
   "method": "suix_getCoins",
   "params": ["@{A}", null, "@{cursor_0}"]
 }
 
-//# run-jsonrpc --cursors {"object_id":@{obj_1_0},"cp_sequence_number":1,"coin_balance_bucket":4}
+//# run-jsonrpc --cursors {"o":"@{obj_1_0}","c":1,"b":4}
 {
   "method": "suix_getCoins",
   "params": ["@{A}", null, "@{cursor_0}"]
