@@ -1696,6 +1696,7 @@ async fn test_publish_dependent_module_ok() {
         &EpochData::new_test(),
         rgp,
         None,
+        true,
     )
     .fresh_id();
 
@@ -1751,6 +1752,7 @@ async fn test_publish_module_no_dependencies_ok() {
         &EpochData::new_test(),
         rgp,
         None,
+        true,
     )
     .fresh_id();
     let signed_effects = send_and_confirm_transaction(&authority, transaction)
