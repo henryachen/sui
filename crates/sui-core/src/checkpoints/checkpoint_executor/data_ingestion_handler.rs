@@ -1,11 +1,9 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::checkpoints::CheckpointStore;
 use crate::execution_cache::{ObjectCacheRead, TransactionCacheRead};
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::Path;
 use sui_storage::blob::{Blob, BlobEncoding};
 use sui_types::digests::TransactionDigest;
 use sui_types::effects::{TransactionEffects, TransactionEffectsAPI};
@@ -87,7 +85,7 @@ pub(crate) fn load_checkpoint_data(
             .collect::<SuiResult<Vec<_>>>()?;
 
         let full_transaction = CheckpointTransaction {
-            transaction: (*tx).clone().into(),
+            transaction: (*tx).clone().into_unsigned(),
             effects: fx,
             events,
             input_objects,
@@ -103,10 +101,7 @@ pub(crate) fn load_checkpoint_data(
     Ok(checkpoint_data)
 }
 
-pub(crate) fn store_checkpoint_locally(
-    path: PathBuf,
-    checkpoint_data: &CheckpointData,
-) -> SuiResult {
+pub(crate) fn store_checkpoint_locally(path: Path, checkpoint_data: &CheckpointData) -> SuiResult {
     let file_name = format!("{}.chk", checkpoint_data.checkpoint_summary.sequence_number);
 
     std::fs::create_dir_all(&path).map_err(|err| {

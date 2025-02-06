@@ -18,6 +18,13 @@
 //! CheckpointExecutor enforces the invariant that if `run` returns successfully, we have reached the
 //! end of epoch. This allows us to use it as a signal for reconfig.
 
+mod data_ingestion_handler;
+pub mod metrics;
+
+mod v2;
+pub use v2::*;
+
+/*
 use std::path::PathBuf;
 use std::{
     collections::HashMap,
@@ -67,11 +74,6 @@ use crate::{
     checkpoints::CheckpointStore,
     execution_cache::{ObjectCacheRead, TransactionCacheRead},
 };
-
-mod data_ingestion_handler;
-pub mod metrics;
-
-mod v2;
 
 type CheckpointExecutionBuffer = FuturesOrdered<
     JoinHandle<(
@@ -663,7 +665,6 @@ impl CheckpointExecutor {
                     &change_epoch_fx,
                     self.object_cache_reader.as_ref(),
                 )
-                .await
                 .expect("Acquiring shared version assignments for change_epoch tx cannot fail");
         }
 
@@ -1311,13 +1312,11 @@ async fn execute_transactions(
 
     for (tx, _) in &executable_txns {
         if tx.contains_shared_object() {
-            epoch_store
-                .acquire_shared_version_assignments_from_effects(
-                    tx,
-                    digest_to_effects.get(tx.digest()).unwrap(),
-                    object_cache_reader,
-                )
-                .await?;
+            epoch_store.acquire_shared_version_assignments_from_effects(
+                tx,
+                digest_to_effects.get(tx.digest()).unwrap(),
+                object_cache_reader,
+            )?;
         }
     }
 
@@ -1392,9 +1391,11 @@ async fn finalize_checkpoint(
 
     let checkpoint_data = load_checkpoint_data(
         checkpoint,
+        checkpoint_contents,
+        transactions,
+        effects,
         object_cache_reader,
         transaction_cache_reader,
-        checkpoint_store,
         tx_digests,
     )?;
 
@@ -1416,3 +1417,5 @@ async fn finalize_checkpoint(
 
     Ok((checkpoint_acc, checkpoint_data))
 }
+
+*/

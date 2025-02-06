@@ -257,7 +257,7 @@ impl DBCheckpointHandler {
     ) -> Result<()> {
         let perpetual_db = Arc::new(AuthorityPerpetualTables::open(&db_path.join("store"), None));
         let checkpoint_store = Arc::new(CheckpointStore::new_for_db_checkpoint_handler(
-            db_path.join("checkpoints"),
+            &db_path.join("checkpoints"),
         ));
         let rpc_index = RpcIndexStore::new_without_init(&db_path);
         let metrics = AuthorityStorePruningMetrics::new(&Registry::default());

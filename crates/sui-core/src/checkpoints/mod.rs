@@ -214,7 +214,7 @@ impl CheckpointStore {
         })
     }
 
-    pub fn new_for_db_checkpoint_handler(path: std::path::PathBuf) -> Arc<Self> {
+    pub fn new_for_db_checkpoint_handler(path: &Path) -> Arc<Self> {
         let tables = CheckpointStoreTables::new(path, "db_checkpoint");
         Arc::new(Self {
             tables,
@@ -1560,7 +1560,7 @@ impl CheckpointBuilder {
                         .upgrade()
                         .expect("No checkpoints should be getting built after local configuration");
                     let acc = state_acc.accumulate_checkpoint(
-                        effects.clone(),
+                        &effects,
                         sequence_number,
                         &self.epoch_store,
                     )?;

@@ -4,30 +4,46 @@
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 use mysten_common::fatal;
-use sui_types::{messages_checkpoint::CheckpointContents, transaction::Transaction};
-/*
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
+use sui_types::inner_temporary_store::PackageStoreWithFallback;
+use sui_types::messages_checkpoint::CheckpointContents;
 
-use sui_config::node::RunWithRange;
-use tokio::sync::broadcast;
-
-use crate::authority::authority_per_epoch_store::AuthorityPerEpochStore;
-use crate::authority::AuthorityState;
-use crate::checkpoints::checkpoint_executor::CheckpointExecutorConfig;
-use crate::checkpoints::checkpoint_executor::CheckpointExecutorMetrics;
+use sui_config::node::{CheckpointExecutorConfig, RunWithRange};
+use sui_macros::fail_point;
+use sui_types::accumulator::Accumulator;
+use sui_types::effects::TransactionEffects;
+use sui_types::executable_transaction::VerifiedExecutableTransaction;
 use sui_types::full_checkpoint_content::CheckpointData;
+use sui_types::message_envelope::Message;
+use sui_types::{
+    base_types::{TransactionDigest, TransactionEffectsDigest},
+    messages_checkpoint::{CheckpointSequenceNumber, VerifiedCheckpoint},
+    transaction::VerifiedTransaction,
+};
+use tap::TapOptional;
+use tokio::sync::broadcast::{self};
+use tracing::{debug, error, info, instrument, warn};
 
+use super::data_ingestion_handler::store_checkpoint_locally;
+use super::metrics::CheckpointExecutorMetrics;
+use crate::authority::authority_per_epoch_store::AuthorityPerEpochStore;
 use crate::authority::backpressure::BackpressureManager;
-use crate::checkpoints::CheckpointStore;
-use crate::checkpoints::VerifiedCheckpoint;
-use crate::execution_cache::ObjectCacheRead;
-use crate::execution_cache::TransactionCacheRead;
+use crate::authority::AuthorityState;
+use crate::checkpoints::checkpoint_executor::data_ingestion_handler::load_checkpoint_data;
 use crate::state_accumulator::StateAccumulator;
 use crate::transaction_manager::TransactionManager;
+use crate::{
+    checkpoints::CheckpointStore,
+    execution_cache::{ObjectCacheRead, TransactionCacheRead},
+};
 
-use super::StopReason;
-*/
-use super::*;
+const CHECKPOINT_PROGRESS_LOG_COUNT_INTERVAL: u64 = 5000;
+
+#[derive(PartialEq, Eq, Debug)]
+pub enum StopReason {
+    EpochComplete,
+    RunWithRangeCondition,
+}
 
 pub struct CheckpointExecutorV2 {
     mailbox: broadcast::Receiver<VerifiedCheckpoint>,
@@ -98,6 +114,14 @@ impl CheckpointExecutorV2 {
         epoch_store: Arc<AuthorityPerEpochStore>,
         run_with_range: Option<RunWithRange>,
     ) -> StopReason {
+        self.run_epoch_impl(epoch_store, run_with_range).await
+    }
+
+    async fn run_epoch_impl(
+        &self,
+        epoch_store: Arc<AuthorityPerEpochStore>,
+        run_with_range: Option<RunWithRange>,
+    ) -> StopReason {
         debug!(?run_with_range, "CheckpointExecutor::run_epoch");
 
         // check if we want to run this epoch based on RunWithRange condition value
@@ -146,6 +170,8 @@ impl CheckpointExecutorV2 {
             .map(|c| c.network_total_transactions)
             .unwrap_or(0);
 
+        let epoch_store_clone = epoch_store.clone();
+
         self.schedule_synced_checkpoints(
             self.checkpoint_store.clone(),
             next_to_schedule,
@@ -184,15 +210,17 @@ impl CheckpointExecutorV2 {
                             epoch_store.as_ref(),
                             tx_manager.as_ref(),
                             transaction_cache_reader.as_ref(),
+                            object_cache_reader.as_ref(),
                             &checkpoint,
                             &tx_digests,
                             &fx_digests,
                             txns.clone(),
+                            &effects,
                             &executed_fx_digests,
                         );
 
                         let checkpoint_acc = accumulator
-                            .accumulate_checkpoint(effects, sequence_number, &epoch_store)
+                            .accumulate_checkpoint(&effects, sequence_number, &epoch_store)
                             .expect("epoch cannot have ended");
 
                         let checkpoint_data = load_checkpoint_data(
@@ -220,43 +248,42 @@ impl CheckpointExecutorV2 {
                     .notify_read_executed_effects_digests(&unexecuted_tx_digests)
                     .await;
 
-                todo!("write checkpoint data");
-                //self.write_checkpoint_data(checkpoint).await;
+                self.write_checkpoint_data(epoch_store.as_ref(), &checkpoint_data);
                 (tx_digests, checkpoint, checkpoint_acc, checkpoint_data)
             }
         })
         .buffered(10)
         // sequential step
         .for_each(
-            |(tx_digests, checkpoint, checkpoint_acc, checkpoint_data)| async move {
-                // TODO: implement
+            |(tx_digests, checkpoint, checkpoint_acc, checkpoint_data)| {
+                let epoch_store = epoch_store_clone.clone();
+                async move {
+                    // TODO: implement
 
-                let _process_scope = mysten_metrics::monitored_scope("ProcessExecutedCheckpoint");
+                    let _process_scope =
+                        mysten_metrics::monitored_scope("ProcessExecutedCheckpoint");
 
-                self.process_executed_checkpoint(
-                    &epoch_store,
-                    &checkpoint,
-                    checkpoint_acc,
-                    checkpoint_data,
-                    &tx_digests,
-                )
-                .await;
-                self.backpressure_manager
-                    .update_highest_executed_checkpoint(*checkpoint.sequence_number());
-                highest_executed = Some(checkpoint.clone());
+                    self.process_executed_checkpoint(
+                        &epoch_store,
+                        &checkpoint,
+                        checkpoint_acc,
+                        checkpoint_data,
+                        &tx_digests,
+                    )
+                    .await;
+                    self.backpressure_manager
+                        .update_highest_executed_checkpoint(*checkpoint.sequence_number());
 
-                // Estimate TPS every 10k transactions or 30 sec
-                let elapsed = now_time.elapsed().as_millis();
-                let current_transaction_num = highest_executed
-                    .as_ref()
-                    .map(|c| c.network_total_transactions)
-                    .unwrap_or(0);
-                if current_transaction_num - now_transaction_num > 10_000 || elapsed > 30_000 {
-                    let tps = (1000.0 * (current_transaction_num - now_transaction_num) as f64
-                        / elapsed as f64) as i32;
-                    self.metrics.checkpoint_exec_sync_tps.set(tps as i64);
-                    now_time = Instant::now();
-                    now_transaction_num = current_transaction_num;
+                    // Estimate TPS every 10k transactions or 30 sec
+                    let elapsed = now_time.elapsed().as_millis();
+                    let current_transaction_num = checkpoint.network_total_transactions;
+                    if current_transaction_num - now_transaction_num > 10_000 || elapsed > 30_000 {
+                        let tps = (1000.0 * (current_transaction_num - now_transaction_num) as f64
+                            / elapsed as f64) as i32;
+                        self.metrics.checkpoint_exec_sync_tps.set(tps as i64);
+                        now_time = Instant::now();
+                        now_transaction_num = current_transaction_num;
+                    }
                 }
             },
         )
@@ -426,13 +453,15 @@ impl CheckpointExecutorV2 {
                     ),
             );
 
-        for ((tx, _), effects) in itertools::izip!(unexecuted_txns, unexecuted_effects) {
+        for ((tx, _), effects) in itertools::izip!(unexecuted_txns.iter(), unexecuted_effects) {
             if tx.contains_shared_object() {
-                epoch_store.acquire_shared_version_assignments_from_effects(
-                    &tx,
-                    effects,
-                    object_cache_reader,
-                )?;
+                epoch_store
+                    .acquire_shared_version_assignments_from_effects(
+                        tx,
+                        effects,
+                        object_cache_reader,
+                    )
+                    .expect("failed to acquire shared version assignments");
             }
         }
 
@@ -456,23 +485,20 @@ impl CheckpointExecutorV2 {
         // Commit all transaction effects to disk
         let cache_commit = self.state.get_cache_commit();
         debug!(seq = ?checkpoint.sequence_number, "committing checkpoint transactions to disk");
-        cache_commit
-            .commit_transaction_outputs(
-                epoch_store.epoch(),
-                all_tx_digests,
-                epoch_store
-                    .protocol_config()
-                    .use_object_per_epoch_marker_table_v2_as_option()
-                    .unwrap_or(false),
-            )
-            .await;
+        cache_commit.commit_transaction_outputs(
+            epoch_store.epoch(),
+            all_tx_digests,
+            epoch_store
+                .protocol_config()
+                .use_object_per_epoch_marker_table_v2_as_option()
+                .unwrap_or(false),
+        );
 
         epoch_store
             .handle_committed_transactions(all_tx_digests)
             .expect("cannot fail");
 
-        self.commit_index_updates_and_enqueue_to_subscription_service(checkpoint_data)
-            .await;
+        self.commit_index_updates_and_enqueue_to_subscription_service(checkpoint_data);
 
         if !checkpoint.is_last_checkpoint_of_epoch() {
             self.accumulator
@@ -551,10 +577,7 @@ impl CheckpointExecutorV2 {
 
     /// If configured, commit the pending index updates for the provided checkpoint as well as
     /// enqueuing the checkpoint to the subscription service
-    async fn commit_index_updates_and_enqueue_to_subscription_service(
-        &self,
-        checkpoint: CheckpointData,
-    ) {
+    fn commit_index_updates_and_enqueue_to_subscription_service(&self, checkpoint: CheckpointData) {
         if let Some(rpc_index) = &self.state.rpc_index {
             rpc_index
                 .commit_update_for_checkpoint(checkpoint.checkpoint_summary.sequence_number)
@@ -562,8 +585,34 @@ impl CheckpointExecutorV2 {
         }
 
         if let Some(sender) = &self.subscription_service_checkpoint_sender {
-            if let Err(e) = sender.send(checkpoint).await {
-                tracing::warn!("unable to send checkpoint to subscription service: {e}");
+            if let Err(e) = sender.blocking_send(checkpoint) {
+                warn!("unable to send checkpoint to subscription service: {e}");
+            }
+        }
+    }
+
+    fn write_checkpoint_data(
+        &self,
+        epoch_store: &AuthorityPerEpochStore,
+        checkpoint_data: &CheckpointData,
+    ) {
+        if self.state.rpc_index.is_some() || self.config.data_ingestion_dir.is_some() {
+            // Index the checkpoint. this is done out of order and is not written and committed to the
+            // DB until later (committing must be done in-order)
+            if let Some(rpc_index) = &self.state.rpc_index {
+                let mut layout_resolver = epoch_store.executor().type_layout_resolver(Box::new(
+                    PackageStoreWithFallback::new(
+                        self.state.get_backing_package_store(),
+                        checkpoint_data,
+                    ),
+                ));
+
+                rpc_index.index_checkpoint(checkpoint_data, layout_resolver.as_mut());
+            }
+
+            if let Some(path) = &self.config.data_ingestion_dir {
+                store_checkpoint_locally(path, checkpoint_data)
+                    .expect("failed to store checkpoint locally");
             }
         }
     }
