@@ -14169,6 +14169,7 @@ dependencies = [
  "fastcrypto",
  "futures",
  "jsonrpsee",
+ "move-binary-format",
  "move-core-types",
  "pin-project-lite",
  "prometheus",
