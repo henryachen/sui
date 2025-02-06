@@ -4816,7 +4816,6 @@ async fn test_consensus_message_processed() {
                     &effects1,
                     authority2.get_object_cache_reader().as_ref(),
                 )
-                .await
                 .unwrap();
             authority2.try_execute_for_test(&certificate).await.unwrap();
             authority2
