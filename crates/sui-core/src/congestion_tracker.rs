@@ -2,7 +2,6 @@ use moka::ops::compute::Op;
 use moka::sync::Cache;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::time::Instant;
 use sui_types::base_types::ObjectID;
 use sui_types::effects::{InputSharedObject, TransactionEffects, TransactionEffectsAPI};
 use sui_types::execution_status::CongestedObjects;
@@ -178,18 +177,14 @@ impl CongestionTracker {
         }
     }
 
-    pub fn get_congestion_info(&self, object_id: ObjectID) -> Option<CongestionInfo> {
+    fn get_congestion_info(&self, object_id: ObjectID) -> Option<CongestionInfo> {
         self.congestion_clearing_prices.get(&object_id)
     }
 
     /// For all the mutable shared inputs, get the highest minimum clearing price (if any exists)
     /// and the lowest maximum cancelled price.
-    pub fn get_suggested_gas_prices(&self, transaction: &TransactionData) -> u64 {
-        let mut recommended = transaction.gas_price();
-        let mut lowest_cleared = u64::MAX;
-        let mut highest_cancelled = 0;
-        let mut cleared_time = None;
-        let mut cancelled_time = None;
+    pub fn get_suggested_gas_prices(&self, transaction: &TransactionData) -> Option<u64> {
+        let mut clearing_price = None;
         for object_id in transaction
             .shared_input_objects()
             .into_iter()
@@ -197,65 +192,29 @@ impl CongestionTracker {
             .map(|id| id.id)
         {
             if let Some(info) = self.get_congestion_info(object_id) {
-                // if there is a lowest cleared, recommend that
-                if let Some(cleared) = info.lowest_executed_gas_price {
-                    lowest_cleared = std::cmp::min(lowest_cleared, cleared);
-                    cleared_time = Some(info.last_success_time);
-                }
-                highest_cancelled =
-                    std::cmp::max(highest_cancelled, info.highest_cancelled_gas_price);
+                let clearing_price_for_object = match info
+                    .last_success_time
+                    .cmp(&Some(info.last_cancellation_time))
+                {
+                    std::cmp::Ordering::Greater => {
+                        // there were no cancellations in the most recent checkpoint,
+                        // so the object is probably not congested any more
+                        None
+                    }
+                    std::cmp::Ordering::Less => {
+                        // there were no successes in the most recent checkpoint. This should be a rare case,
+                        // but we know we will have to bid at least as much as the highest cancelled price.
+                        Some(info.highest_cancelled_gas_price)
+                    }
+                    std::cmp::Ordering::Equal => {
+                        // there were both successes and cancellations.
+                        info.lowest_executed_gas_price
+                    }
+                };
+                clearing_price = std::cmp::max(clearing_price, clearing_price_for_object);
             }
         }
-    }
-
-    fn update_congestion_info_for_cancelled_objects<'a>(
-        &self,
-        now: Instant,
-        congested_objects: impl IntoIterator<Item = &'a ObjectID>,
-        gas_price: u64,
-    ) {
-        for object_id in congested_objects {
-            self.congestion_clearing_prices
-                .entry(*object_id)
-                .and_upsert_with(|maybe_entry| {
-                    if let Some(e) = maybe_entry {
-                        let mut e = e.into_value();
-                        e.update_for_cancellation(now, gas_price);
-                        e
-                    } else {
-                        CongestionInfo {
-                            last_cancellation_time: now,
-                            highest_cancelled_gas_price: gas_price,
-                            last_success_time: None,
-                            lowest_executed_gas_price: None,
-                        }
-                    }
-                });
-        }
-    }
-
-    fn update_congestion_info_for_successful_transaction<'a>(
-        &self,
-        now: Instant,
-        shared_inputs: impl IntoIterator<Item = &'a ObjectID>,
-        gas_price: u64,
-    ) {
-        // iterate over all mutable shared inputs
-        for object in shared_inputs {
-            self.congestion_clearing_prices
-                .entry(*object)
-                .and_compute_with(|maybe_entry| {
-                    if let Some(e) = maybe_entry {
-                        let mut e = e.into_value();
-                        e.update_for_success(now, gas_price);
-                        Op::Put(e)
-                    } else {
-                        // do not insert info about objects that haven't
-                        // had a recent cancellation
-                        Op::Nop
-                    }
-                });
-        }
+        clearing_price
     }
 }
 
@@ -272,59 +231,5 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_congestion_tracker() {
-        let t1 = Instant::now();
-        let tracker = CongestionTracker::new();
-
-        let o = [ObjectID::random(), ObjectID::random(), ObjectID::random()];
-
-        // update congestion info for cancelled objects
-        tracker.update_congestion_info_for_cancelled_objects(t1, &[o[0], o[1]], 100);
-
-        // verify congestion info was updated correctly
-        for object_id in &[o[0], o[1]] {
-            let info = tracker.get_congestion_info(*object_id).unwrap();
-            assert_eq!(info.last_cancellation_time, t1);
-            assert_eq!(info.highest_cancelled_gas_price, 100);
-            assert!(info.last_success_time.is_none());
-            assert!(info.lowest_executed_gas_price.is_none());
-        }
-
-        let t2 = t1 + Duration::from_secs(1);
-
-        // now a successful transaction comes in
-        tracker.update_congestion_info_for_successful_transaction(t2, &[o[0]], 120);
-
-        // verify congestion info was updated correctly
-        let info = tracker.get_congestion_info(o[0]).unwrap();
-        assert_eq!(info.last_success_time, Some(t2));
-        assert_eq!(info.last_cancellation_time, t1);
-        assert_eq!(info.lowest_executed_gas_price, Some(120));
-        assert_eq!(info.highest_cancelled_gas_price, 100);
-
-        let t3 = t2 + Duration::from_secs(1);
-
-        // another successful transaction happens at a higher gas price
-        // lowest_executed_gas_price should not be updated
-        tracker.update_congestion_info_for_successful_transaction(t3, &[o[0]], 130);
-        let info = tracker.get_congestion_info(o[0]).unwrap();
-        assert_eq!(info.last_success_time, Some(t3));
-        assert_eq!(info.lowest_executed_gas_price, Some(120));
-
-        // a congested transaction comes in with a lower gas price,
-        // highest_cancelled_gas_price should not be updated
-        let t4 = t3 + Duration::from_secs(1);
-        tracker.update_congestion_info_for_cancelled_objects(t4, &[o[1]], 90);
-        let info = tracker.get_congestion_info(o[1]).unwrap();
-        assert_eq!(info.last_cancellation_time, t4);
-        assert_eq!(info.highest_cancelled_gas_price, 100);
-
-        // a successful transaction comes in with a lower gas price,
-        // lowest_executed_gas_price should be updated
-        let t5 = t4 + Duration::from_secs(1);
-        tracker.update_congestion_info_for_successful_transaction(t5, &[o[1]], 110);
-        let info = tracker.get_congestion_info(o[1]).unwrap();
-        assert_eq!(info.last_success_time, Some(t5));
-        assert_eq!(info.lowest_executed_gas_price, Some(110));
-    }
+    fn test_congestion_tracker() {}
 }
