@@ -2618,11 +2618,6 @@ impl AuthorityState {
         inner_temporary_store: &InnerTemporaryStore,
         epoch_store: &Arc<AuthorityPerEpochStore>,
     ) -> SuiResult {
-        if self.is_fullnode(epoch_store) {
-            self.congestion_tracker
-                .update_congestion_info(certificate, effects);
-        }
-
         if self.indexes.is_none() {
             return Ok(());
         }
