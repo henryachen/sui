@@ -44,6 +44,7 @@ pub mod transaction_orchestrator;
 mod transaction_outputs;
 pub mod validator_tx_finalizer;
 pub mod verify_indexes;
+pub mod congestion_tracker;
 
 #[cfg(test)]
 #[path = "unit_tests/congestion_control_tests.rs"]

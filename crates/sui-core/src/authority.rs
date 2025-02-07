@@ -2,6 +2,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::congestion_tracker::CongestionTracker;
 use crate::consensus_adapter::ConsensusOverloadChecker;
 use crate::execution_cache::ExecutionCacheTraitPointers;
 use crate::execution_cache::TransactionCacheRead;
@@ -830,6 +831,8 @@ pub struct AuthorityState {
 
     /// The chain identifier is derived from the digest of the genesis checkpoint.
     chain_identifier: ChainIdentifier,
+
+    pub(crate) congestion_tracker: Arc<CongestionTracker>,
 }
 
 /// The authority state encapsulates all state, drives execution, and ensures safety.
@@ -2615,6 +2618,11 @@ impl AuthorityState {
         inner_temporary_store: &InnerTemporaryStore,
         epoch_store: &Arc<AuthorityPerEpochStore>,
     ) -> SuiResult {
+        if self.is_fullnode(epoch_store) {
+            self.congestion_tracker
+                .update_congestion_info(certificate, effects);
+        }
+
         if self.indexes.is_none() {
             return Ok(());
         }
@@ -2949,6 +2957,7 @@ impl AuthorityState {
             overload_info: AuthorityOverloadInfo::default(),
             validator_tx_finalizer,
             chain_identifier,
+            congestion_tracker: Arc::new(CongestionTracker::new()),
         });
 
         // Start a task to execute ready certificates.
