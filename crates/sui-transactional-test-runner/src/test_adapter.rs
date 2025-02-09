@@ -1291,11 +1291,7 @@ impl<'a> SuiTestAdapter {
         self.executor
     }
 
-    fn named_variables(
-        &self,
-        cursors: &[String],
-        highest_checkpoint: u64,
-    ) -> BTreeMap<String, String> {
+    fn named_variables(&self) -> (BTreeMap<String, String>, BTreeMap<String, Vec<u8>>) {
         let mut variables = BTreeMap::new();
         let mut objects_mapping: BTreeMap<String, Vec<u8>> = BTreeMap::new();
 
@@ -1327,60 +1323,20 @@ impl<'a> SuiTestAdapter {
             variables.insert(format!("digest_{tid}"), digest.to_string());
         }
 
-        for (idx, s) in cursors.iter().enumerate() {
-            // an object cursor may be either @{obj_x_y} or @{obj_x_y,n}
-            // if the former, then use highest_checkpoint
-            if s.starts_with("@{obj_") && s.ends_with('}') {
-                let end_of_key = s.find(',').unwrap_or(s.len() - 1);
-                let obj_lookup = s[2..end_of_key].to_string();
-
-                let obj_id = objects_mapping.get(&obj_lookup).unwrap_or_else(|| {
-                    panic!(
-                        "Unknown object lookup: {}\nAllowed variable mappings are {:#?}",
-                        obj_lookup, variables
-                    )
-                });
-
-                let checkpoint = if end_of_key == s.len() - 1 {
-                    highest_checkpoint
-                } else {
-                    s[end_of_key + 1..s.len() - 1].parse::<u64>().unwrap()
-                };
-
-                let bcsd = bcs::to_bytes(&(obj_id.clone(), checkpoint)).unwrap_or_default();
-                let base64d = Base64::encode(bcsd);
-
-                variables.insert(format!("cursor_{idx}"), base64d);
-            } else {
-                variables.insert(format!("cursor_{idx}"), Base64::encode(s));
-            }
-        }
-
-        variables
+        (variables, objects_mapping)
     }
 
-    fn interpolate_query(
+    fn interpolate_contents(
         &self,
         contents: &str,
-        cursors: &[String],
-        highest_checkpoint: u64,
+        variables: &BTreeMap<String, String>,
     ) -> anyhow::Result<String> {
-        let variables = self.named_variables(cursors, highest_checkpoint);
-        let mut interpolated_query = contents.to_string();
+        let mut interpolated_contents = contents.to_string();
 
-        let re = regex::Regex::new(r"@\{([^\}]+)\}").unwrap();
-
-        let mut unique_vars = std::collections::HashSet::new();
-
-        // Collect unique variables
-        for cap in re.captures_iter(contents) {
-            if let Some(var_name) = cap.get(1) {
-                unique_vars.insert(var_name.as_str());
-            }
-        }
+        let unique_vars = self.extract_variable_names(contents);
 
         for var_name in unique_vars {
-            let Some(value) = variables.get(var_name) else {
+            let Some(value) = variables.get(&var_name) else {
                 return Err(anyhow!(
                     "Unknown variable: {}\nAllowed variable mappings are {:#?}",
                     var_name,
@@ -1389,10 +1345,104 @@ impl<'a> SuiTestAdapter {
             };
 
             let pattern = format!("@{{{}}}", var_name);
-            interpolated_query = interpolated_query.replace(&pattern, value);
+            interpolated_contents = interpolated_contents.replace(&pattern, value);
         }
 
-        Ok(interpolated_query)
+        Ok(interpolated_contents)
+    }
+
+    /// Three types of cursors are accepted:
+    /// 1. bcs_obj:@{obj_name}: we need to encode the object id and the checkpoint number into the cursor
+    /// 2. bcs:(@{obj_name},n_0,n_1,...): we need to encode the object id and the following numbers into the cursor
+    /// 3. cursor contents that does not need bcs encoding: we can just encode the cursor contents directly into base64
+    fn interpolate_cursor(
+        &self,
+        cursor: &str,
+        highest_checkpoint: u64,
+        objects_mapping: &BTreeMap<String, Vec<u8>>,
+        variables: &mut BTreeMap<String, String>,
+    ) -> anyhow::Result<String> {
+        let interpolated_cursor = if cursor.starts_with("bcs_obj:") {
+            let obj_name = self
+                .extract_variable_names(cursor)
+                .iter()
+                .next()
+                .ok_or_else(|| anyhow!("No variable name found in cursor: {}", cursor))?
+                .to_string();
+            let obj_id = objects_mapping
+                .get(&obj_name)
+                .ok_or_else(|| anyhow!("Unknown object lookup: {}", obj_name))?;
+            let bcsd = bcs::to_bytes(&(obj_id.clone(), highest_checkpoint)).unwrap_or_default();
+            Base64::encode(bcsd)
+        } else if cursor.starts_with("bcs:") {
+            let inner = cursor
+                .strip_prefix("bcs:(")
+                .unwrap()
+                .strip_suffix(")")
+                .unwrap();
+            let parts: Vec<&str> = inner.split(',').collect();
+            let obj_part = parts
+                .first()
+                .ok_or_else(|| anyhow!("Empty cursor: {}", cursor))?
+                .trim();
+            let obj_name = self
+                .extract_variable_names(obj_part)
+                .iter()
+                .next()
+                .ok_or_else(|| {
+                    anyhow!(
+                        "No object variable name found in cursor's first part: {}",
+                        obj_part
+                    )
+                })?
+                .to_string();
+            let obj_id = objects_mapping
+                .get(&obj_name)
+                .ok_or_else(|| anyhow!("Unknown object lookup: {}", obj_name))?;
+            let numbers = parts[1..]
+                .iter()
+                .map(|s| {
+                    s.trim()
+                        .parse::<u64>()
+                        .map_err(|e| anyhow!("Failed to parse number: {}", e))
+                })
+                .collect::<anyhow::Result<Vec<u64>>>()?;
+            let mut bcsd = bcs::to_bytes(obj_id).unwrap_or_default();
+            numbers.iter().for_each(|n| {
+                bcsd.extend(bcs::to_bytes(n).unwrap_or_default());
+            });
+            Base64::encode(bcsd)
+        } else {
+            let replaced_cursor = self.interpolate_contents(cursor, variables)?;
+            Base64::encode(&replaced_cursor)
+        };
+
+        Ok(interpolated_cursor)
+    }
+
+    fn extract_variable_names(&self, contents: &str) -> std::collections::HashSet<String> {
+        let re = regex::Regex::new(r"@\{([^\}]+)\}").unwrap();
+        re.captures_iter(contents)
+            .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
+            .collect()
+    }
+
+    fn interpolate_query(
+        &self,
+        contents: &str,
+        cursors: &[String],
+        highest_checkpoint: u64,
+    ) -> anyhow::Result<String> {
+        // First collect all the variable and object mappings
+        let (mut variables, objects_mapping) = self.named_variables();
+        // Then interpolate the cursors which may reference objects
+        for (idx, s) in cursors.iter().enumerate() {
+            let interpolated_cursor =
+                self.interpolate_cursor(s, highest_checkpoint, &objects_mapping, &mut variables)?;
+            // Add the interpolated cursor to the variables map because they may get used in the query.
+            variables.insert(format!("cursor_{idx}"), interpolated_cursor);
+        }
+        self.interpolate_contents(contents, &variables)
     }
 
     async fn upgrade_package(
